@@ -1,0 +1,109 @@
+---
+- name: Install Nexus repository as system service
+  hosts: nexus_server
+  become: yes
+
+  vars:
+    nexus_version: 'nexus-3.23.0-03'
+
+  tasks:
+
+    - name: Install required system packages (for JVM 1.8.0)
+      apt:
+        name:
+          - 'apt-transport-https'
+          - 'gnupg-agent'
+          - 'software-properties-common'
+        state: present
+        update_cache: yes
+
+    - name: Import the official AdoptOpenJDK GPG key (for JVM 1.8.0)
+      apt_key:
+        url: https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public
+        state: present
+
+    - name: Import the AdoptOpenJDK DEB repository (for JVM 1.8.0)
+      apt_repository:
+        repo: deb https://adoptopenjdk.jfrog.io/adoptopenjdk/deb/ {{ ansible_distribution_release }} main
+        state: present
+
+    - name: Install OpenJDK 8 with the HotSpot VM (install JVM 1.8.0)
+      apt:
+        name: 'adoptopenjdk-8-hotspot'
+        state: present
+        update_cache: yes
+
+    - name: Ensure "nexus" group exists
+      group:
+        name: nexus
+        state: present
+
+    - name: Ensure "nexus" user exists
+      user:
+        name: nexus
+        group: nexus
+        home: /opt/sonatype-work/nexus3
+        shell: /sbin/nologin
+        state: present
+
+    - name: Download and unarchive Nexus Repository Manager. Skip when already exists.
+      unarchive:
+        src: http://download.sonatype.com/nexus/3/{{ nexus_version }}-unix.tar.gz
+        dest: /opt/
+        remote_src: yes
+        creates: /opt/{{ nexus_version }}/bin/nexus
+
+    - name: Configuring startup JVM arguments and run service as user "nexus"
+      copy:
+        src: "{{ item }}"
+        dest: /opt/{{ nexus_version }}/bin/
+      loop:
+        - 'nexus.vmoptions'
+        - 'nexus.rc'
+
+    - name: Serving Inbound SSL - STEP 1. Create a Java keystore file
+      copy:
+        src: keystore.jks
+        dest: /opt/sonatype-work/nexus3/etc/ssl/
+
+    - name: Serving Inbound SSL - STEP 2. Edit nexus-default.properties
+      copy:
+        src: nexus.properties
+        dest: /opt/sonatype-work/nexus3/etc/
+
+    - name: Serving Inbound SSL - STEP 3. Edit jetty-https.xml
+      copy:
+        src: jetty-https.xml
+        dest: /opt/{{ nexus_version }}/etc/jetty/
+
+    - name: Ensure proper read/write permissions for service account "nexus"
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: yes
+        owner: nexus
+        group: nexus
+        mode: 0775
+      loop:
+        - '/opt/{{ nexus_version }}'
+        - '/opt/sonatype-work'
+
+    - name: Configuring Nexus as systemd service
+      template:
+        src: nexus.service.j2
+        dest: /etc/systemd/system/nexus.service
+      notify: "Activate Nexus service"
+      # After starting the service for any Linux-based operating systems,
+      # verify that the service started successfully.
+      #
+      # sudo tail -f /opt/sonatype-work/nexus3/log/nexus.log
+
+
+  handlers:
+    - name: "Activate Nexus service"
+      systemd:
+        daemon_reload: yes
+        name: 'nexus.service'
+        enabled: yes
+        state: restarted
+...
