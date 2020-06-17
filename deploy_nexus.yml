@@ -4,7 +4,7 @@
   become: yes
 
   vars:
-    nexus_version: 'nexus-3.23.0-03'
+    nexus_version: 'nexus-3.24.0-02'
 
   tasks:
 
@@ -46,7 +46,7 @@
         shell: /sbin/nologin
         state: present
 
-    - name: Download and unarchive Nexus Repository Manager. Skip when already exists.
+    - name: Download and unarchive Nexus Repository Manager (Skip when already exists!)
       unarchive:
         src: http://download.sonatype.com/nexus/3/{{ nexus_version }}-unix.tar.gz
         dest: /opt/
@@ -65,6 +65,7 @@
       copy:
         src: keystore.jks
         dest: /opt/sonatype-work/nexus3/etc/ssl/
+      notify: "Restart Nexus systemd service"
 
     - name: Serving Inbound SSL - STEP 2. Edit nexus-default.properties
       copy:
@@ -105,5 +106,10 @@
         daemon_reload: yes
         name: 'nexus.service'
         enabled: yes
+        state: restarted
+
+    - name: "Restart Nexus systemd service"
+      systemd:
+        name: nexus.service
         state: restarted
 ...
